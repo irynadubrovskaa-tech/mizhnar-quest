@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Міжнар квест</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        /* Кольори факультету: глибокий синій та кремовий */
+        :root {
+            --main-blue: #1A2B4C; 
+            --bg-cream: #F8F5EE;
+            --accent-gold: #D4AF37;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-cream);
+            color: var(--main-blue);
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .hidden { display: none !important; }
+        
+        /* Екран привітання */
+        #start-screen img {
+            width: 200px;
+            margin-top: 50px;
+        }
+        button {
+            background-color: var(--main-blue);
+            color: var(--bg-cream);
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            margin-top: 30px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        /* Карта та пункти */
+        .map-container {
+            /* Тут можна поставити фонове зображення карти: background-image: url('map.jpg'); */
+            padding: 20px 0;
+        }
+        .location-btn {
+            display: block;
+            width: 90%;
+            margin: 10px auto;
+            padding: 15px;
+            background-color: #e0e0e0;
+            color: #888;
+            border: 2px dashed #aaa;
+            border-radius: 10px;
+            font-size: 16px;
+            pointer-events: none;
+        }
+        .location-btn.active {
+            background-color: var(--main-blue);
+            color: white;
+            border: 2px solid var(--main-blue);
+            pointer-events: auto;
+            cursor: pointer;
+        }
+        .location-btn.completed {
+            background-color: var(--accent-gold);
+            color: var(--main-blue);
+            border: 2px solid var(--accent-gold);
+            pointer-events: auto;
+        }
+
+        /* Табличка (Модальне вікно) */
+        .modal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: var(--bg-cream);
+            padding: 20px;
+            border-radius: 15px;
+            width: 80%;
+            position: relative;
+            border: 3px solid var(--main-blue);
+        }
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 24px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #reader { width: 100%; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen">
+        <img src="logo.png" alt="Емблема факультету">
+        <h2>Чи готовий ти розпочати подорож?</h2>
+        <button onclick="startQuest()">Розпочати квест</button>
+    </div>
+
+    <div id="map-screen" class="hidden">
+        <h3>Карта факультету</h3>
+        <div class="map-container" id="locations-list">
+            </div>
+        <button onclick="resetProgress()" style="font-size: 12px; margin-top: 50px; background: #999;">Скинути прогрес</button>
+    </div>
+
+    <div id="modal" class="hidden modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">×</span>
+            <h2 id="modal-title">Назва локації</h2>
+            <p id="modal-desc">Опис локації...</p>
+            <div id="scanner-area">
+                <button id="scan-btn" onclick="startScanner()">Відсканувати QR-код</button>
+                <div id="reader"></div>
+            </div>
+            <p id="success-msg" class="hidden" style="color: green; font-weight: bold;">Вітаю, ти на один крок ближче! ✓</p>
+        </div>
+    </div>
+
+<script>
+    // Інформація про всі пункти призначення
+    const locations = [
+        { id: 1, title: "205 аудиторія", desc: "Тут проводяться різні заходи, зібрання студентського самоврядування та лекції.", qrKey: "quest_step_1" },
+        { id: 2, title: "Кафедра іноземних мов", desc: "Твоя база для вивчення англійської та інших мов.", qrKey: "quest_step_2" },
+        { id: 3, title: "Кафедра міжнародного права", desc: "Тут народжуються майбутні юристи-міжнародники.", qrKey: "quest_step_3" },
+        { id: 4, title: "Кафедра міжнародних економічних відносин", desc: "Основи макроекономіки та світових ринків вивчають саме тут.", qrKey: "quest_step_4" },
+        { id: 5, title: "Кафедра європейських та регіональних студій", desc: "Поглиблене вивчення процесів інтеграції та розвитку регіонів.", qrKey: "quest_step_5" },
+        { id: 6, title: "Кафедра міжнародних відносин...", desc: "...та дипломатичної служби. Серце майбутніх дипломатів.", qrKey: "quest_step_6" },
+        { id: 7, title: "Кафедра міжнародних комунікацій...", desc: "...та цифрової дипломатії. PR та медіа-стратегії світового рівня.", qrKey: "quest_step_7" },
+        { id: 8, title: "Кафедра міжнародної безпеки...", desc: "...та стратегічних студій. Фінальна точка нашого квесту!", qrKey: "quest_step_8" }
+    ];
+
+    let currentProgress = parseInt(localStorage.getItem('questProgress')) || 1;
+    let selectedLocation = null;
+    let html5QrcodeScanner = null;
+
+    function startQuest() {
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('map-screen').classList.remove('hidden');
+        renderMap();
+    }
+
+    function renderMap() {
+        const list = document.getElementById('locations-list');
+        list.innerHTML = '';
+        
+        locations.forEach((loc, index) => {
+            const btn = document.createElement('div');
+            btn.className = 'location-btn';
+            
+            if (loc.id < currentProgress) {
+                btn.classList.add('completed');
+                btn.innerHTML = `✓ ${loc.title}`;
+                btn.onclick = () => openModal(loc, true);
+            } else if (loc.id === currentProgress) {
+                btn.classList.add('active');
+                btn.innerHTML = `📍 ${loc.title} (Наступна ціль)`;
+                btn.onclick = () => openModal(loc, false);
+            } else {
+                btn.innerHTML = `🔒 ???`; // Приховані локації
+            }
+            list.appendChild(btn);
+        });
+
+        if (currentProgress > locations.length) {
+            alert("🎉 Вітаю! Квест повністю пройдено!");
+        }
+    }
+
+    function openModal(loc, isCompleted) {
+        selectedLocation = loc;
+        document.getElementById('modal-title').innerText = loc.title;
+        document.getElementById('modal').classList.remove('hidden');
+        
+        if (isCompleted) {
+            document.getElementById('modal-desc').innerText = loc.desc;
+            document.getElementById('scanner-area').classList.add('hidden');
+            document.getElementById('success-msg').classList.remove('hidden');
+        } else {
+            document.getElementById('modal-desc').innerText = "Знайди цю локацію та відскануй код, щоб відкрити інформацію!";
+            document.getElementById('scanner-area').classList.remove('hidden');
+            document.getElementById('success-msg').classList.add('hidden');
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('modal').classList.add('hidden');
+        if (html5QrcodeScanner) {
+            html5QrcodeScanner.clear(); // Вимикаємо камеру при закритті
+        }
+    }
+
+    function startScanner() {
+        html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+        if (decodedText === selectedLocation.qrKey) {
+            // Правильний код!
+            html5QrcodeScanner.clear();
+            currentProgress++;
+            localStorage.setItem('questProgress', currentProgress);
+            
+            document.getElementById('scanner-area').classList.add('hidden');
+            document.getElementById('modal-desc').innerText = selectedLocation.desc;
+            document.getElementById('success-msg').classList.remove('hidden');
+            
+            renderMap(); // Оновлюємо карту на фоні
+        } else {
+            alert("Це код від іншої локації! Шукай далі.");
+        }
+    }
+
+    function onScanFailure(error) { /* Ігноруємо помилки під час пошуку коду */ }
+
+    function resetProgress() {
+        localStorage.removeItem('questProgress');
+        currentProgress = 1;
+        renderMap();
+    }
+
+    // Авто-вхід, якщо вже почали
+    if (currentProgress > 1) {
+        startQuest();
+    }
+</script>
+</body>
+</html>
